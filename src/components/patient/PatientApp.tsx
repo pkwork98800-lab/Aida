@@ -1,9 +1,11 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Consultation, Message } from '../../types';
 import { db } from '../../services/db';
 import { medicalBot } from '../../services/medicalBot';
-import { Send, UserPlus, HeartPulse, History } from 'lucide-react';
+import { Send, UserPlus, HeartPulse, History, LogIn, UserCircle } from 'lucide-react';
+
+type AuthView = 'welcome' | 'login' | 'register';
 
 export const PatientApp: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -11,6 +13,35 @@ export const PatientApp: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [authView, setAuthView] = useState<AuthView>('welcome');
+  const [loginError, setLoginError] = useState('');
+
+  // Check for existing user on mount
+  useEffect(() => {
+    const savedUser = localStorage.getItem('currentUser');
+    if (savedUser) {
+      const userData = db.getUser(savedUser);
+      if (userData) {
+        setUser(userData);
+      }
+    }
+  }, []);
+
+  const handleLogin = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setLoginError('');
+    const formData = new FormData(e.currentTarget);
+    const name = formData.get('name') as string;
+    
+    const existingUser = db.getUsers().find(u => u.name.toLowerCase() === name.toLowerCase());
+    
+    if (existingUser) {
+      setUser(existingUser);
+      localStorage.setItem('currentUser', existingUser.id);
+    } else {
+      setLoginError('User not found. Please register or check your name.');
+    }
+  };
 
   const handleRegister = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -23,6 +54,14 @@ export const PatientApp: React.FC = () => {
       medications: (formData.get('medications') as string).split(',').map(s => s.trim()).filter(Boolean),
     });
     setUser(newUser);
+    localStorage.setItem('currentUser', newUser.id);
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    setConsultation(null);
+    localStorage.removeItem('currentUser');
+    setAuthView('welcome');
   };
 
   const startConsultation = () => {
@@ -52,12 +91,76 @@ export const PatientApp: React.FC = () => {
   };
 
   if (!user) {
+    // Welcome Screen with Login/Register options
+    if (authView === 'welcome') {
+      return (
+        <div className="max-w-md mx-auto bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
+          <div className="bg-blue-600 px-6 py-8 text-white text-center">
+            <HeartPulse className="w-12 h-12 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold">Welcome to AIDA</h2>
+            <p className="text-blue-100 mt-2">AI-Powered Medical Consultation</p>
+          </div>
+          <div className="p-8 space-y-4">
+            <button 
+              onClick={() => setAuthView('login')}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition-colors flex items-center justify-center gap-2"
+            >
+              <LogIn size={20} />
+              Login (Existing User)
+            </button>
+            <button 
+              onClick={() => setAuthView('register')}
+              className="w-full bg-white border-2 border-blue-600 text-blue-600 hover:bg-blue-50 font-bold py-4 rounded-xl transition-colors flex items-center justify-center gap-2"
+            >
+              <UserPlus size={20} />
+              Register (New User)
+            </button>
+            <p className="text-xs text-slate-500 text-center mt-4">
+              This is for educational purposes only. Not a substitute for professional medical advice.
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    // Login Form
+    if (authView === 'login') {
+      return (
+        <div className="max-w-md mx-auto bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
+          <div className="bg-blue-600 px-6 py-6 text-white text-center">
+            <UserCircle className="w-10 h-10 mx-auto mb-2" />
+            <h2 className="text-xl font-bold">Welcome Back</h2>
+            <p className="text-blue-100 text-sm">Login to your account</p>
+          </div>
+          <form onSubmit={handleLogin} className="p-8 space-y-4">
+            {loginError && (
+              <div className="bg-red-50 text-red-600 px-4 py-2 rounded-lg text-sm">
+                {loginError}
+              </div>
+            )}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Your Name</label>
+              <input name="name" required className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Enter your registered name" />
+            </div>
+            <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2">
+              <LogIn size={20} />
+              Login
+            </button>
+            <button type="button" onClick={() => setAuthView('welcome')} className="w-full text-slate-500 hover:text-slate-700 py-2 text-sm">
+              ← Back to Welcome
+            </button>
+          </form>
+        </div>
+      );
+    }
+
+    // Registration Form
     return (
       <div className="max-w-md mx-auto bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100">
-        <div className="bg-blue-600 px-6 py-8 text-white text-center">
-          <HeartPulse className="w-12 h-12 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold">Welcome to AI Doctor</h2>
-          <p className="text-blue-100 mt-2">Please register to begin your consultation</p>
+        <div className="bg-blue-600 px-6 py-6 text-white text-center">
+          <UserPlus className="w-10 h-10 mx-auto mb-2" />
+          <h2 className="text-xl font-bold">Patient Registration</h2>
+          <p className="text-blue-100 text-sm">Create your health profile</p>
         </div>
         <form onSubmit={handleRegister} className="p-8 space-y-4">
           <div>
@@ -88,7 +191,10 @@ export const PatientApp: React.FC = () => {
           </div>
           <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2">
             <UserPlus size={20} />
-            Start Consultation
+            Register & Continue
+          </button>
+          <button type="button" onClick={() => setAuthView('welcome')} className="w-full text-slate-500 hover:text-slate-700 py-2 text-sm">
+            ← Back to Welcome
           </button>
         </form>
       </div>
@@ -125,9 +231,14 @@ export const PatientApp: React.FC = () => {
             </span>
           </div>
         </div>
-        <button onClick={() => setConsultation(null)} className="text-slate-400 hover:text-slate-600 transition-colors">
-          <History size={20} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setConsultation(null)} className="text-slate-400 hover:text-slate-600 transition-colors" title="Back to Home">
+            <History size={20} />
+          </button>
+          <button onClick={handleLogout} className="text-red-400 hover:text-red-600 transition-colors text-sm font-medium" title="Logout">
+            Logout
+          </button>
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/50">
