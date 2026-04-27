@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Consultation, Message } from '../../types';
 import { db } from '../../services/db';
 import { medicalBot } from '../../services/medicalBot';
-import { Send, UserPlus, HeartPulse, History, LogIn, UserCircle } from 'lucide-react';
+import { Send, UserPlus, HeartPulse, History, LogIn, UserCircle, Loader } from 'lucide-react';
 
 type AuthView = 'welcome' | 'login' | 'register';
 
@@ -15,46 +15,61 @@ export const PatientApp: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [authView, setAuthView] = useState<AuthView>('welcome');
   const [loginError, setLoginError] = useState('');
+  const [dbLoading, setDbLoading] = useState(true);
 
-  // Check for existing user on mount
+  // Initialize database and check for existing user
   useEffect(() => {
-    const savedUser = localStorage.getItem('currentUser');
-    if (savedUser) {
-      const userData = db.getUser(savedUser);
-      if (userData) {
-        setUser(userData);
+    const initAndCheck = async () => {
+      setDbLoading(true);
+      await db.init();
+      setDbLoading(false);
+      
+      const savedUserId = localStorage.getItem('currentUser');
+      if (savedUserId) {
+        const userData = db.getUser(savedUserId);
+        if (userData) {
+          setUser(userData);
+        }
       }
-    }
+    };
+    initAndCheck();
   }, []);
 
-  const handleLogin = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoginError('');
+    setLoading(true);
     const formData = new FormData(e.currentTarget);
     const name = formData.get('name') as string;
     
-    const existingUser = db.getUsers().find(u => u.name.toLowerCase() === name.toLowerCase());
+    const existingUsers = db.getUsersByName(name);
     
-    if (existingUser) {
+    if (existingUsers.length > 0) {
+      const existingUser = existingUsers[0];
       setUser(existingUser);
       localStorage.setItem('currentUser', existingUser.id);
     } else {
       setLoginError('User not found. Please register or check your name.');
     }
+    setLoading(false);
   };
 
-  const handleRegister = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setLoading(true);
     const formData = new FormData(e.currentTarget);
-    const newUser = db.addUser({
+    const newUser = await db.addUser({
       name: formData.get('name') as string,
       age: parseInt(formData.get('age') as string),
       gender: formData.get('gender') as string,
       allergies: (formData.get('allergies') as string).split(',').map(s => s.trim()).filter(Boolean),
       medications: (formData.get('medications') as string).split(',').map(s => s.trim()).filter(Boolean),
     });
-    setUser(newUser);
-    localStorage.setItem('currentUser', newUser.id);
+    if (newUser) {
+      setUser(newUser);
+      localStorage.setItem('currentUser', newUser.id);
+    }
+    setLoading(false);
   };
 
   const handleLogout = () => {
@@ -64,15 +79,17 @@ export const PatientApp: React.FC = () => {
     setAuthView('welcome');
   };
 
-  const startConsultation = () => {
+  const startConsultation = async () => {
     if (!user) return;
-    const newConsult = db.startConsultation(user.id);
-    setConsultation(newConsult);
-    
-    // Bot greeting
-    const greeting = `Hello ${user.name}! I'm Dr. AI. I'm here to help you understand your symptoms. What's bothering you today?`;
-    db.addMessage(newConsult.id, 'bot', greeting);
-    setMessages(db.getMessages(newConsult.id));
+    const newConsult = await db.startConsultation(user.id);
+    if (newConsult) {
+      setConsultation(newConsult);
+      
+      // Bot greeting
+      const greeting = `Hello ${user.name}! I'm Dr. AI. I'm here to help you understand your symptoms. What's bothering you today?`;
+      await db.addMessage(newConsult.id, 'bot', greeting);
+      setMessages(db.getMessages(newConsult.id));
+    }
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -89,6 +106,16 @@ export const PatientApp: React.FC = () => {
     setConsultation(db.getConsultation(consultation.id) || null);
     setLoading(false);
   };
+
+  // Loading screen while database initializes
+  if (dbLoading) {
+    return (
+      <div className="max-w-md mx-auto bg-white rounded-2xl shadow-xl p-12 text-center">
+        <Loader className="w-12 h-12 mx-auto mb-4 animate-spin text-blue-600" />
+        <p className="text-slate-500">Connecting to database...</p>
+      </div>
+    );
+  }
 
   if (!user) {
     // Welcome Screen with Login/Register options

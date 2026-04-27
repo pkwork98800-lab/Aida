@@ -20,33 +20,33 @@ export class MedicalBot {
     if (!user) throw new Error('User not found');
 
     // Add user message to log
-    db.addMessage(consultationId, 'user', message);
+    await db.addMessage(consultationId, 'user', message);
 
     // Initial greeting stage
     if (!consultation.chiefComplaint) {
       const complaint = this.analyzer.extractChiefComplaint(message);
-      db.updateConsultation(consultationId, { chiefComplaint: complaint });
+      await db.updateConsultation(consultationId, { chiefComplaint: complaint });
       
       const question = this.questionGen.generateInitial(complaint);
-      return db.addMessage(consultationId, 'bot', question);
+      return await db.addMessage(consultationId, 'bot', question);
     }
 
     // Safety check
     const emergency = this.safety.checkEmergency(consultation.symptoms, message);
     if (emergency.isEmergency) {
-      db.updateConsultation(consultationId, { emergencyFlag: true, status: 'completed' });
-      return db.addMessage(consultationId, 'bot', emergency.message);
+      await db.updateConsultation(consultationId, { emergencyFlag: true, status: 'completed' });
+      return await db.addMessage(consultationId, 'bot', emergency.message);
     }
 
     // Analyze symptoms
     const newSymptom = this.analyzer.analyzeResponse(message);
     const updatedSymptoms = [...consultation.symptoms, newSymptom];
-    db.updateConsultation(consultationId, { symptoms: updatedSymptoms });
+    await db.updateConsultation(consultationId, { symptoms: updatedSymptoms });
 
     // Consultation logic
     if (updatedSymptoms.length < 3) {
       const question = this.questionGen.generateNext(consultation.chiefComplaint, updatedSymptoms.length);
-      return db.addMessage(consultationId, 'bot', question);
+      return await db.addMessage(consultationId, 'bot', question);
     } else {
       // Diagnose
       const diagnosisResult = this.diagnosisEngine.diagnose(updatedSymptoms);
@@ -65,13 +65,13 @@ export class MedicalBot {
         response += `**Follow-up:**\n${treatment.follow_up}`;
       }
 
-      db.updateConsultation(consultationId, { 
+      await db.updateConsultation(consultationId, { 
         diagnosis: diagnosisResult.primary.condition,
         confidenceLevel: diagnosisResult.primary.confidence,
         status: 'completed'
       });
       
-      return db.addMessage(consultationId, 'bot', response);
+      return await db.addMessage(consultationId, 'bot', response);
     }
   }
 }

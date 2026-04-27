@@ -1,14 +1,23 @@
-
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { db } from '../../services/db';
 import { Disease } from '../../types';
-import { Plus, Search, BrainCircuit, X } from 'lucide-react';
+import { Plus, Search, BrainCircuit, X, Loader } from 'lucide-react';
 
 export const DiseaseLibrary: React.FC = () => {
-  const [diseases, setDiseases] = useState<Disease[]>(db.getDiseases());
+  const [diseases, setDiseases] = useState<Disease[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [aiText, setAiText] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadData = async () => {
+      await db.init();
+      setDiseases(db.getDiseases());
+      setLoading(false);
+    };
+    loadData();
+  }, []);
 
   const filteredDiseases = diseases.filter(d => 
     d.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -62,6 +71,14 @@ export const DiseaseLibrary: React.FC = () => {
     setIsAdding(false);
     setAiText('');
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader className="w-8 h-8 animate-spin text-indigo-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

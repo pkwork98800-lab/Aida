@@ -1,4 +1,4 @@
-
+import { supabase } from './supabase';
 import { User, Consultation, Message, Disease } from '../types';
 
 const INITIAL_DISEASES: Disease[] = [
@@ -89,49 +89,187 @@ const INITIAL_DISEASES: Disease[] = [
 ];
 
 class DBService {
-  private users: User[] = JSON.parse(localStorage.getItem('users') || '[]');
-  private consultations: Consultation[] = JSON.parse(localStorage.getItem('consultations') || '[]');
-  private messages: Message[] = JSON.parse(localStorage.getItem('messages') || '[]');
-  private diseases: Disease[] = JSON.parse(localStorage.getItem('diseases') || JSON.stringify(INITIAL_DISEASES));
+  // In-memory cache
+  private users: User[] = [];
+  private consultations: Consultation[] = [];
+  private messages: Message[] = [];
+  private diseases: Disease[] = INITIAL_DISEASES;
 
-  private save() {
-    localStorage.setItem('users', JSON.stringify(this.users));
-    localStorage.setItem('consultations', JSON.stringify(this.consultations));
-    localStorage.setItem('messages', JSON.stringify(this.messages));
-    localStorage.setItem('diseases', JSON.stringify(this.diseases));
+  async init() {
+    // Load all data from Supabase on init
+    await this.loadUsers();
+    await this.loadConsultations();
+    await this.loadMessages();
+    await this.loadDiseases();
+  }
+
+  private async loadUsers() {
+    const { data, error } = await supabase.from('profiles').select('*');
+    if (!error && data) {
+      this.users = data.map(p => ({
+        id: p.id,
+        name: p.name,
+        age: p.age,
+        gender: p.gender,
+        allergies: p.allergies || [],
+        medications: p.current_medications || [],
+        createdAt: p.created_at
+      }));
+    }
+  }
+
+  private async loadConsultations() {
+    const { data, error } = await supabase.from('consultations').select('*').order('created_at', { ascending: true });
+    if (!error && data) {
+      this.consultations = data.map(c => ({
+        id: c.id,
+        userId: c.user_id,
+        timestamp: c.created_at,
+        chiefComplaint: c.chief_complaint || '',
+        diagnosis: c.diagnosis || '',
+        confidenceLevel: c.confidence_level || 'Medium',
+        status: c.status || 'active',
+        emergencyFlag: c.emergency_flag || false,
+        symptoms: c.symptoms_snapshot || []
+      }));
+    }
+  }
+
+  private async loadMessages() {
+    const { data, error } = await supabase.from('messages').select('*').order('timestamp', { ascending: true });
+    if (!error && data) {
+      this.messages = data.map(m => ({
+        id: m.id,
+        consultationId: m.consultation_id,
+        type: m.sender_type,
+        content: m.content,
+        timestamp: m.timestamp
+      }));
+    }
+  }
+
+  private async loadDiseases() {
+    const { data, error } = await supabase.from('diseases').select('*').eq('is_active', true);
+    if (!error && data && data.length > 0) {
+      this.diseases = data.map(d => ({
+        id: d.id,
+        name: d.name,
+        category: d.category,
+        severity: d.severity,
+        description: d.description,
+        typicalDuration: d.typical_duration,
+        symptoms: d.symptoms_json,
+        diagnosticQuestions: d.diagnostic_questions,
+        treatmentProtocols: d.treatment_protocols_json,
+        isActive: d.is_active
+      }));
+    }
   }
 
   getUsers() { return this.users; }
-  getUser(id: string) { return this.users.find(u => u.id === id); }
-  addUser(user: Omit<User, 'id' | 'createdAt'>) {
-    const newUser = { ...user, id: Math.random().toString(36).substr(2, 9), createdAt: new Date().toISOString() };
+  
+  getUsersByName(name: string) { 
+    return this.users.filter(u => u.name.toLowerCase() === name.toLowerCase()); 
+  }
+
+  getUser(id: string) { 
+    return this.users.find(u => u.id === id); 
+  }
+
+  async addUser(user: Omit<User, 'id' | 'createdAt'>) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .insert({
+        name: user.name,
+        age: user.age,
+        gender: user.gender,
+        allergies: user.allergies,
+        current_medications: user.medications
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating user:', error);
+      return null;
+    }
+
+    const newUser: User = {
+      id: data.id,
+      name: data.name,
+      age: data.age,
+      gender: data.gender,
+      allergies: data.allergies || [],
+      medications: data.current_medications || [],
+      createdAt: data.created_at
+    };
+
     this.users.push(newUser);
-    this.save();
     return newUser;
   }
 
   getConsultations() { return this.consultations; }
-  getConsultation(id: string) { return this.consultations.find(c => c.id === id); }
-  startConsultation(userId: string) {
+  
+  getConsultationsByUser(userId: string) {
+    return this.consultations.filter(c => c.userId === userId);
+  }
+
+  getConsultation(id: string) { 
+    return this.consultations.find(c => c.id === id); 
+  }
+
+  async startConsultation(userId: string) {
+    const { data, error } = await supabase
+      .from('consultations')
+      .insert({
+        user_id: userId,
+        status: 'active',
+        emergency_flag: false
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error starting consultation:', error);
+      return null;
+    }
+
     const consultation: Consultation = {
-      id: Math.random().toString(36).substr(2, 9),
-      userId,
-      timestamp: new Date().toISOString(),
-      chiefComplaint: '',
-      status: 'active',
-      emergencyFlag: false,
-      symptoms: []
+      id: data.id,
+      userId: data.user_id,
+      timestamp: data.created_at,
+      status: data.status,
+      emergencyFlag: data.emergency_flag,
+      symptoms: data.symptoms_snapshot || []
     };
+
     this.consultations.push(consultation);
-    this.save();
     return consultation;
   }
 
-  updateConsultation(id: string, updates: Partial<Consultation>) {
+  async updateConsultation(id: string, updates: Partial<Consultation>) {
+    const supabaseUpdates: any = {};
+    if (updates.chiefComplaint !== undefined) supabaseUpdates.chief_complaint = updates.chiefComplaint;
+    if (updates.diagnosis !== undefined) supabaseUpdates.diagnosis = updates.diagnosis;
+    if (updates.confidenceLevel !== undefined) supabaseUpdates.confidence_level = updates.confidenceLevel;
+    if (updates.status !== undefined) supabaseUpdates.status = updates.status;
+    if (updates.emergencyFlag !== undefined) supabaseUpdates.emergency_flag = updates.emergencyFlag;
+    if (updates.symptoms !== undefined) supabaseUpdates.symptoms_snapshot = updates.symptoms;
+    if (updates.status === 'completed') supabaseUpdates.completed_at = new Date().toISOString();
+
+    const { error } = await supabase
+      .from('consultations')
+      .update(supabaseUpdates)
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error updating consultation:', error);
+      return;
+    }
+
     const index = this.consultations.findIndex(c => c.id === id);
     if (index !== -1) {
       this.consultations[index] = { ...this.consultations[index], ...updates };
-      this.save();
     }
   }
 
@@ -139,26 +277,77 @@ class DBService {
     return this.messages.filter(m => m.consultationId === consultationId);
   }
 
-  addMessage(consultationId: string, type: 'bot' | 'user', content: string) {
+  async addMessage(consultationId: string, type: 'bot' | 'user', content: string) {
+    const { data, error } = await supabase
+      .from('messages')
+      .insert({
+        consultation_id: consultationId,
+        sender_type: type,
+        content: content
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error adding message:', error);
+      return null;
+    }
+
     const message: Message = {
-      id: Math.random().toString(36).substr(2, 9),
-      consultationId,
-      type,
-      content,
-      timestamp: new Date().toISOString()
+      id: data.id,
+      consultationId: data.consultation_id,
+      type: data.sender_type,
+      content: data.content,
+      timestamp: data.timestamp
     };
+
     this.messages.push(message);
-    this.save();
     return message;
   }
 
   getDiseases() { return this.diseases; }
-  addDisease(disease: Omit<Disease, 'id'>) {
-    const newDisease = { ...disease, id: Math.random().toString(36).substr(2, 9) };
+
+  async addDisease(disease: Omit<Disease, 'id'>) {
+    const { data, error } = await supabase
+      .from('diseases')
+      .insert({
+        name: disease.name,
+        category: disease.category,
+        severity: disease.severity,
+        description: disease.description,
+        typical_duration: disease.typicalDuration,
+        symptoms_json: disease.symptoms,
+        diagnostic_questions: disease.diagnosticQuestions,
+        treatment_protocols_json: disease.treatmentProtocols,
+        is_active: disease.isActive
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error adding disease:', error);
+      return null;
+    }
+
+    const newDisease: Disease = {
+      id: data.id,
+      name: data.name,
+      category: data.category,
+      severity: data.severity,
+      description: data.description,
+      typicalDuration: data.typical_duration,
+      symptoms: data.symptoms_json,
+      diagnosticQuestions: data.diagnostic_questions,
+      treatmentProtocols: data.treatment_protocols_json,
+      isActive: data.is_active
+    };
+
     this.diseases.push(newDisease);
-    this.save();
     return newDisease;
   }
 }
 
 export const db = new DBService();
+
+// Initialize database on load
+db.init().catch(console.error);

@@ -1,7 +1,6 @@
-
-import React, { useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { db } from '../../services/db';
-import { Users, ClipboardList, AlertTriangle, TrendingUp } from 'lucide-react';
+import { Users, ClipboardList, AlertTriangle, TrendingUp, Loader } from 'lucide-react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -23,8 +22,20 @@ ChartJS.register(
 );
 
 export const Dashboard: React.FC = () => {
-  const users = db.getUsers();
-  const consultations = db.getConsultations();
+  const [loading, setLoading] = useState(true);
+  const [users, setUsers] = useState<any[]>([]);
+  const [consultations, setConsultations] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadData = async () => {
+      await db.init();
+      setUsers(db.getUsers());
+      setConsultations(db.getConsultations());
+      setLoading(false);
+    };
+    loadData();
+  }, []);
+
   const emergencies = consultations.filter(c => c.emergencyFlag).length;
 
   const chartData = useMemo(() => {
@@ -50,41 +61,59 @@ export const Dashboard: React.FC = () => {
     };
   }, [consultations]);
 
-  const stats = [
-    { label: 'Total Users', value: users.length, icon: Users, color: 'blue' },
-    { label: 'Total Consultations', value: consultations.length, icon: ClipboardList, color: 'indigo' },
-    { label: 'Emergencies', value: emergencies, icon: AlertTriangle, color: 'red' },
-    { label: 'Completion Rate', value: `${consultations.length ? Math.round((consultations.filter(c => c.status === 'completed').length / consultations.length) * 100) : 0}%`, icon: TrendingUp, color: 'green' },
-  ];
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader className="w-8 h-8 animate-spin text-indigo-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat, index) => (
-          <div key={index} className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center gap-4">
-            <div className={`p-3 rounded-xl bg-${stat.color}-50 text-${stat.color}-600`}>
-              <stat.icon size={24} />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-slate-500">{stat.label}</p>
-              <p className="text-2xl font-bold text-slate-800">{stat.value}</p>
-            </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <Users className="text-indigo-600" size={24} />
           </div>
-        ))}
+          <div className="text-3xl font-bold text-slate-800">{users.length}</div>
+          <div className="text-sm text-slate-500">Total Users</div>
+        </div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <ClipboardList className="text-emerald-600" size={24} />
+          </div>
+          <div className="text-3xl font-bold text-slate-800">{consultations.length}</div>
+          <div className="text-sm text-slate-500">Total Consultations</div>
+        </div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <TrendingUp className="text-amber-600" size={24} />
+          </div>
+          <div className="text-3xl font-bold text-slate-800">
+            {consultations.filter(c => c.status === 'completed').length}
+          </div>
+          <div className="text-sm text-slate-500">Completed</div>
+        </div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <AlertTriangle className="text-red-600" size={24} />
+          </div>
+          <div className="text-3xl font-bold text-slate-800">{emergencies}</div>
+          <div className="text-sm text-slate-500">Emergencies</div>
+        </div>
       </div>
 
-      <div className="bg-white p-8 rounded-2xl border border-slate-100 shadow-sm">
-        <h3 className="text-lg font-bold mb-6 text-slate-800">Top Diagnoses</h3>
-        <div className="h-[300px]">
-          <Bar 
-            data={chartData} 
-            options={{ 
-              responsive: true, 
-              maintainAspectRatio: false,
-              plugins: { legend: { display: false } }
-            }} 
-          />
-        </div>
+      <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+        <h3 className="text-lg font-bold text-slate-800 mb-4">Diagnosis Distribution</h3>
+        <Bar 
+          data={chartData} 
+          options={{ 
+            responsive: true, 
+            plugins: { legend: { position: 'top' as const } },
+            scales: { y: { beginAtZero: true } }
+          }} 
+        />
       </div>
     </div>
   );

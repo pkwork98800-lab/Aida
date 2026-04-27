@@ -1,17 +1,35 @@
-
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { db } from '../../services/db';
-import { MessageSquare, Calendar, User as UserIcon, AlertCircle } from 'lucide-react';
+import { MessageSquare, Calendar, User as UserIcon, AlertCircle, Loader } from 'lucide-react';
 
 export const UserLogs: React.FC = () => {
-  const consultations = [...db.getConsultations()].sort((a, b) => 
-    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-  );
+  const [consultations, setConsultations] = useState<any[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadData = async () => {
+      await db.init();
+      const allConsultations = [...db.getConsultations()].sort((a, b) => 
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+      setConsultations(allConsultations);
+      setLoading(false);
+    };
+    loadData();
+  }, []);
 
   const selectedConsult = consultations.find(c => c.id === selectedId);
   const selectedMessages = selectedId ? db.getMessages(selectedId) : [];
   const selectedUser = selectedConsult ? db.getUser(selectedConsult.userId) : null;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader className="w-8 h-8 animate-spin text-indigo-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[700px]">
@@ -29,7 +47,7 @@ export const UserLogs: React.FC = () => {
                 }`}
               >
                 <div className="flex justify-between items-start">
-                  <span className="font-bold text-slate-800">{u?.name}</span>
+                  <span className="font-bold text-slate-800">{u?.name || 'Unknown'}</span>
                   {c.emergencyFlag && <AlertCircle className="text-red-500" size={16} />}
                 </div>
                 <div className="text-xs text-slate-400 flex items-center gap-1">
@@ -51,9 +69,9 @@ export const UserLogs: React.FC = () => {
             <div className="p-6 border-b border-slate-100 bg-slate-50">
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <h3 className="text-xl font-bold text-slate-800">{selectedUser?.name}</h3>
+                  <h3 className="text-xl font-bold text-slate-800">{selectedUser?.name || 'Unknown User'}</h3>
                   <div className="flex gap-4 mt-1 text-slate-500 text-sm">
-                    <span className="flex items-center gap-1"><UserIcon size={14} /> Age: {selectedUser?.age}</span>
+                    <span className="flex items-center gap-1"><UserIcon size={14} /> Age: {selectedUser?.age || 'N/A'}</span>
                     <span className="flex items-center gap-1"><MessageSquare size={14} /> Status: {selectedConsult.status}</span>
                   </div>
                 </div>
@@ -62,7 +80,7 @@ export const UserLogs: React.FC = () => {
                 )}
               </div>
               <div className="flex flex-wrap gap-2">
-                {selectedConsult.symptoms.map((s, i) => (
+                {selectedConsult.symptoms?.map((s: any, i: number) => (
                   <span key={i} className="bg-white border border-slate-200 px-3 py-1 rounded-lg text-xs font-medium text-slate-600">
                     {s.name} ({s.severity})
                   </span>
